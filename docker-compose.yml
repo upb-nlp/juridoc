@@ -1,0 +1,80 @@
+services:
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  vllm:
+    image: vllm/vllm-openai:v0.10.2
+    ports:
+      - "9020:9020"
+    runtime: nvidia
+    ipc: host
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    restart: unless-stopped
+    command: >
+      --model meta-llama/Llama-3.1-8B-Instruct
+      --port 9020
+      --gpu-memory-utilization 0.90
+      --tensor-parallel-size 1
+      --disable-log-requests
+      --max-model-len 27000
+      --enable-lora
+      --lora-modules
+      subpoema-isselect=/lora/subpoema/isselected
+      subpoema-istemei=/lora/subpoema/istemei
+      subpoema-iscerere=/lora/subpoema/iscerere
+      subpoema-isproba=/lora/subpoema/isproba
+      subpoema-isparat=/lora/subpoema/isparat
+      subpoema-isreclamant=/lora/subpoema/isreclamant
+      counterclaim-iscerere=/lora/counterclaim/iscerere
+      counterclaim-istemei=/lora/counterclaim/istemei
+      counterclaim-isproba=/lora/counterclaim/isproba
+      counterclaim-isselect=/lora/counterclaim/isselected
+      counterclaim-isparat=/lora/counterclaim/isparat
+      counterclaim-isreclamant=/lora/counterclaim/isreclamant
+      rewrite-cerere=/lora/summary/cerere
+      summary-select=/lora/summary/select
+      --max-lora-rank 32
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+      - ./lora:/lora
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+
+  juridoc:
+    build:
+      dockerfile: deploy/Dockerfile
+    depends_on:
+      - redis
+    environment:
+      - VLLM_ENDPOINT=http://vllm:9020/v1
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+    ports:
+      - "8060:8060"
+    restart: unless-stopped
+    command: python3 server.py --host 0.0.0.0 --port 8060
+
+  celery-worker:
+    build:
+      dockerfile: deploy/Dockerfile
+    depends_on:
+      - redis
+    environment:
+      - VLLM_ENDPOINT=http://vllm:9020/v1
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+    restart: unless-stopped
+    command: celery -A celery_config worker --loglevel=info --queues=document_processing --concurrency=20
+
+volumes:
+  redis_data:
