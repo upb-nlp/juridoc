@@ -82,14 +82,19 @@ def remove_duplicate_paragraphs_from_end(matches):
     return matches
 
 
-def calculate_match_score(annotated_content, paragraph_words):
+def calculate_match_score(annotated_content, paragraph_words, annotated_text_normalized):
     """Calculate normalized match score between annotated content and paragraph"""
     if not paragraph_words:
         return 0
     
-    annotated_text_normalized = ' '.join(annotated_content.strip().split())
 
-    if annotated_text_normalized in ' '.join([w.text for w in paragraph_words]):
+    paragraph_text = ' '.join([word.text.strip() for word in paragraph_words]).strip()
+
+    # Quick checks to avoid unnecessary processing
+    if len(paragraph_text) < len(annotated_content):
+        return 0
+
+    if annotated_text_normalized in paragraph_text:
         return 1.0
     
     # TODO: Improve the logic here, it's a bit itchy, and longer paragraphs
@@ -106,6 +111,9 @@ def find_best_matching_paragraph(cleaned_content, paragraph_mapping, annotated_d
     """Find the paragraph with the highest match score for the given content"""
     best_match_score = 0
     best_paragraph_info = None
+
+
+    annotated_text_normalized = ' '.join(cleaned_content.strip().split()).strip()
     
     for actual_para_num, (page_idx, para_idx) in paragraph_mapping.items():
         page = annotated_document.pages[page_idx]
@@ -114,12 +122,15 @@ def find_best_matching_paragraph(cleaned_content, paragraph_mapping, annotated_d
         # Get all non-empty words from the paragraph in order
         paragraph_words = [word for word in paragraph.words if word.text.strip()]
 
-
         if not paragraph_words:
             continue
         
         # Calculate match score for this paragraph
-        match_score = calculate_match_score(cleaned_content, paragraph_words)
+        match_score = calculate_match_score(cleaned_content, paragraph_words, annotated_text_normalized)
+
+        # End early if a perfect match is found
+        if match_score == 1.0:
+            return match_score, (page_idx, para_idx, paragraph_words)
 
         if match_score > best_match_score:
             best_match_score = match_score
@@ -165,14 +176,14 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                 # and generate the maximum number of tokens. We limit
                 # it based on the annotation type.
                 max_tokens_map = {
-                    'isReclamant': 256,
-                    'isParat': 256,
-                    'isTemei': 512,
-                    'isProba': 512,
-                    'isCerere': 1024,
-                    'isSelected': 3000
+                    'isReclamant': 150,
+                    'isParat': 150,
+                    'isTemei': 400,
+                    'isProba': 300,
+                    'isCerere': 700,
+                    'isSelected': 2300
                 }
-                max_tokens = max_tokens_map.get(annotation_type, 3000)
+                max_tokens = max_tokens_map.get(annotation_type, 2300)
 
                 completion = await make_openai_request_async(
                     model=model_name,
@@ -239,11 +250,14 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
             # We handle this by removing duplicate paragraphs from the end.
             matches = remove_duplicate_paragraphs_from_end(matches)
             
+            # For each paragraph in the model output, we try to find the matching paragraph
+            # in the original document and then mark the corresponding words.
             for para_content in matches:
                 cleaned_content = para_content.strip()
                 if not cleaned_content:
                     continue
                 
+
                 best_match_score, best_paragraph_info = find_best_matching_paragraph(
                     cleaned_content, paragraph_mapping, annotated_document
                 )

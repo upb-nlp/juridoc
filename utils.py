@@ -66,7 +66,7 @@ SYSTEM_PROMPTS = ANNOTATION_SYSTEM_PROMPTS
 # Get VLLM endpoint from environment variable, default to localhost:9020
 VLLM_ENDPOINT = os.getenv("VLLM_ENDPOINT", "http://localhost:9020/v1")
 
-VLLM_TIMEOUT = int(os.getenv("VLLM_TIMEOUT", "300"))  # 5 minutes default
+VLLM_TIMEOUT = int(os.getenv("VLLM_TIMEOUT", "500"))  # 8.3 minutes default
 
 # Keep the sync client for backwards compatibility
 client = OpenAI(
