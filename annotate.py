@@ -186,9 +186,9 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                     'isTemei': 400,
                     'isProba': 300,
                     'isCerere': 700,
-                    'isSelected': 2300
+                    'isSelected': 4000
                 }
-                max_tokens = max_tokens_map.get(annotation_type, 2300)
+                max_tokens = max_tokens_map.get(annotation_type, 4000)
 
                 start_time = time.time()
 

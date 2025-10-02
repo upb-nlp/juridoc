@@ -21,7 +21,7 @@ services:
       --gpu-memory-utilization 0.90
       --tensor-parallel-size 1
       --disable-log-requests
-      --max-model-len 27000
+      --max-model-len 34000
       --enable-lora
       --lora-modules
       subpoema-isselect=/lora/subpoema/isselected
