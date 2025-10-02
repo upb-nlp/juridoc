@@ -1,5 +1,7 @@
 import asyncio
 import re
+import time
+import logging
 from utils import (
     build_user_prompt_for_task_type, extract_combined_text,
     SUPPORTED_DOCUMENT_TYPES, make_openai_request_async, 
@@ -9,6 +11,9 @@ from utils import (
 from models import (
     TaskStatus, DocumentRequest
 )
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 def find_contiguous_matches(annotated_text, original_words):
     """Find contiguous word sequences that match between annotated and original text"""
@@ -185,6 +190,8 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                 }
                 max_tokens = max_tokens_map.get(annotation_type, 2300)
 
+                start_time = time.time()
+
                 completion = await make_openai_request_async(
                     model=model_name,
                     temperature=0.2,
@@ -192,24 +199,37 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                     messages=messages
                 )
 
+                end_time = time.time()
+                duration = end_time - start_time
+                logger.info(f"LLM request completed for {annotation_type} in {duration:.2f} seconds (model: {model_name}) [Case: {document.caseNumber}, Entity: {document.entityId}]")
+
                 response_content = completion.choices[0].message.content
                 return annotation_type, response_content
 
             except Exception as e:
-                print(f"Error processing {annotation_type}: {str(e)}")
-                # Return the annotation type with None content to indicate failure
+                logger.error(f"Error processing {annotation_type}: {str(e)} [Case: {document.caseNumber}, Entity: {document.entityId}]")
+                # We return None for the result to indicate failure, but do not raise
+                # an error to allow other tasks to continue.
                 return annotation_type, None
 
         # Run all annotation tasks in parallel
+        logger.info(f"Starting parallel processing of {len(annotation_types)} annotation types [Case: {document.caseNumber}, Entity: {document.entityId}]")
+        parallel_start_time = time.time()
+
         annotation_tasks = [process_annotation_type(annotation_type) for annotation_type in annotation_types]
         annotation_results_list = await asyncio.gather(*annotation_tasks, return_exceptions=True)
+
+        parallel_end_time = time.time()
+        total_parallel_duration = parallel_end_time - parallel_start_time
+        logger.info(f"All LLM requests completed in {total_parallel_duration:.2f} seconds (parallel execution) [Case: {document.caseNumber}, Entity: {document.entityId}]")
+
         # Filter out any exceptions and convert successful results to dictionary
         annotation_results = {}
         failed_types = []
 
         for result in annotation_results_list:
             if isinstance(result, Exception):
-                print(f"Task failed with exception: {str(result)}")
+                logger.warning(f"Task failed with exception: {str(result)}")
                 continue
             elif result[1] is None:
                 failed_types.append(result[0])
@@ -218,7 +238,7 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                 annotation_results[result[0]] = result[1]
 
         if failed_types:
-            print(f"Failed to process annotation types: {failed_types}")
+            logger.warning(f"Failed to process annotation types: {failed_types}")
             # Optionally update status to indicate partial failure
             update_task_status_callback(task_id, TaskStatus.ANNOTATING,
                 f"Some annotation types failed: {failed_types}. Processing remaining types: {list(annotation_results.keys())}")
@@ -239,10 +259,13 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                     paragraph_mapping[current_para_num] = (page_idx, para_idx)
                     current_para_num += 1
         
+        # Start timing the annotation processing
+        annotation_processing_start_time = time.time()
+
         for annotation_type, result_text in annotation_results.items():
             if not result_text:
                 continue
-                
+
             para_pattern = r'<p>(.*?)</p>'
             matches = re.findall(para_pattern, result_text, re.DOTALL)
             
@@ -288,6 +311,10 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                             elif annotation_type == 'isParat':
                                 word.isParat = True
         
+        annotation_processing_end_time = time.time()
+        annotation_processing_duration = annotation_processing_end_time - annotation_processing_start_time
+        logger.info(f"Annotation processing completed in {annotation_processing_duration:.2f} seconds [Case: {document.caseNumber}, Entity: {document.entityId}]")
+
         update_task_status_callback(task_id, TaskStatus.COMPLETED, "Document processing completed", document=annotated_document)
         
     except Exception as e:

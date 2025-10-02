@@ -1,4 +1,6 @@
 import asyncio
+import time
+import logging
 from utils import (
     SUPPORTED_DOCUMENT_TYPES, 
     make_openai_request_async,
@@ -11,6 +13,9 @@ from utils import (
 from models import (
     TaskStatus, DocumentRequest, DocumentSummary
 )
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 # Mapping of annotation types to summary field names in DocumentSummary
 ANNOTATION_TO_SUMMARY_FIELD = {
@@ -82,12 +87,18 @@ async def generate_category_summary(category_text: str, annotation_type: str, do
             {"role": "user", "content": user_content}
         ]
         
+        start_time = time.time()
+        
         completion = await make_openai_request_async(
             model=model_name,
             temperature=0.2,
             max_tokens=3000,
             messages=messages
         )
+        
+        end_time = time.time()
+        duration = end_time - start_time
+        logger.info(f"LLM request completed for {annotation_type} summary in {duration:.2f} seconds (model: {model_name})")
         
         result = completion.choices[0].message.content.strip()
         
@@ -98,6 +109,7 @@ async def generate_category_summary(category_text: str, annotation_type: str, do
         return result
         
     except Exception as e:
+        logger.error(f"Error generating summary for {annotation_type}: {str(e)}")
         return f"Error generating summary: {str(e)}"
 
 async def summarize_document_categories(task_id: str, document: DocumentRequest, update_task_status_callback):
@@ -134,6 +146,7 @@ async def summarize_document_categories(task_id: str, document: DocumentRequest,
 
                 return annotation_type, summary_text
             except Exception as e:
+                logger.error(f"Error processing {annotation_type} summary: {str(e)} [Case: {document.caseNumber}, Entity: {document.entityId}]")
                 return annotation_type, f"Eroare la procesare: {str(e)}"
         
         update_task_status_callback(
@@ -145,13 +158,19 @@ async def summarize_document_categories(task_id: str, document: DocumentRequest,
         # Create tasks for annotation types that need summarization and run them in parallel
         summary_tasks = [process_category_summary(annotation_type) for annotation_type in annotation_types]
         
+        logger.info(f"Starting parallel processing of {len(annotation_types)} summary types [Case: {document.caseNumber}, Entity: {document.entityId}]")
+        parallel_start_time = time.time()
+        
         summary_results_list = await asyncio.gather(*summary_tasks, return_exceptions=True)
         
-        # Process results and build the document summary
+        parallel_end_time = time.time()
+        total_parallel_duration = parallel_end_time - parallel_start_time
+        logger.info(f"All summary LLM requests completed in {total_parallel_duration:.2f} seconds (parallel execution) [Case: {document.caseNumber}, Entity: {document.entityId}]")
+        
         summary_fields = {}
         for result in summary_results_list:
             if isinstance(result, Exception):
-                print(f"Error in parallel processing: {str(result)}")
+                logger.warning(f"Summary task failed with exception: {str(result)}")
                 continue
             elif isinstance(result, tuple) and len(result) == 2:
                 annotation_type, summary_content = result
@@ -189,4 +208,5 @@ async def summarize_document_categories(task_id: str, document: DocumentRequest,
         )
         
     except Exception as e:
+        logger.error(f"Document summarization failed: {str(e)} [Case: {document.caseNumber}, Entity: {document.entityId}]")
         update_task_status_callback(task_id, TaskStatus.FAILED, error=str(e))
