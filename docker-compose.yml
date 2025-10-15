@@ -38,6 +38,8 @@ services:
       counterclaim-isreclamant=/lora/counterclaim/isreclamant
       rewrite-cerere=/lora/summary/cerere
       summary-select=/lora/summary/select
+      rewrite-proba=/lora/summary/proba
+      extract-reclamant=/lora/summary/reclamant
       --max-lora-rank 32
     volumes:
       - ~/.cache/huggingface:/root/.cache/huggingface

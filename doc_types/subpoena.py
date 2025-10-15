@@ -2,7 +2,7 @@
 
 SUBPOENA_ANNOTATION_SYSTEM_PROMPT = """Ești un asistent inteligent specializat în analiza documentelor juridice. Poți extrage și identifica diferite tipuri de entități și informații din documentele juridice românești. Vei răspunde doar cu entitățile extrase, fără a altera textul original. Textul de intrare va avea paragrafele separate prin tagurile <p> și </p>. Entitățile extrase vor conține aceste taguri."""
 
-SUBPOENA_SUMMARY_SYSTEM_PROMPT = """Ești un asistent inteligent specializat în analiza, sumarizarea si corectarea documentelor juridice românești."""
+SUBPOENA_SUMMARY_SYSTEM_PROMPT = """Ești un asistent inteligent specializat în analiza, rezumarea și corectarea documentelor juridice românești."""
 
 SUBPOENA_ANNOTATION_MODEL_CONFIG = {
     'isTemei': "subpoema-istemei",
@@ -15,10 +15,10 @@ SUBPOENA_ANNOTATION_MODEL_CONFIG = {
 
 SUBPOENA_SUMMARY_MODEL_CONFIG = {
     'isTemei': "meta-llama/Llama-3.1-8B-Instruct",
-    'isProba': "meta-llama/Llama-3.1-8B-Instruct",
+    'isProba': "rewrite-proba",
     'isSelected': "summary-select",
     'isCerere': "rewrite-cerere",
-    'isReclamant': "meta-llama/Llama-3.1-8B-Instruct",
+    'isReclamant': "extract-reclamant",
     'isParat': "meta-llama/Llama-3.1-8B-Instruct"
 }
 
@@ -40,22 +40,72 @@ SUBPOENA_SUMMARY_PROMPTS = {
     'isTemei': """Corecteaza textul temeiului legal dacă este cazul, acesta ar trebui să fie la persoana a III-a, forma pasivă, timpul perfect compus și este introdus prin "În drept".
 De exemplu, "În drept, au fost invocate următoarele prevederi...". Vei răspunde doar cu textul corectat, fără alte explicații.""",
     
-    'isProba': """Corectează textul probei dacă este cazul, acesta ar trebui să fie la persoana a III-a, forma pasivă, timpul perfect compus și este introdus prin "În probațiune,".
+    'isProba': """Adapteaza textul de mai sus pentru a enumera probele aduse intr-un document juridic. Nu vei face schimbari de sens. Probele vor fi separate prin virgula. Singurele schimbari pe care le vei face vor fi sa transformi textul la persoana a III-a, forma pasivă, timpul perfect compus și vei introduce textul prin "În probațiune, s-au solicitat următoarele probe:".
+Vei răspunde doar cu textul cerut, fără alte explicații.""",
+
+    'isSelected': """**Obiectiv principal:** Elaborează un rezumat juridic al
+faptelor și circumstanțelor descrise în textul de mai sus, cuprinzând toate
+argumentele esențiale prezentate în textul furnizat.
+
+**Parametri de redactare lingvistică:** Textul va fi redactat exclusiv la
+persoana a III-a, forma activă, modul indicativ, timpul perfect compus. Stilul
+adoptat este juridic-formal, caracterizat prin claritate, concizie și precizie
+terminologică. Se va evita orice formulare ambiguă sau redundantă. 
+
+**ACORD GRAMATICAL - REGULI OBLIGATORII:**
+
+{isReclamant}
+
+**Structură textuală:** Rezumatul va fi organizat în paragrafe distincte,
+fiecare corespunzând unei idei principale sau unui grup de argumente conexe.
+Fiecare paragraf va dezvolta complet tema sa înainte de tranziția către
+următorul. Textul va debuta cu formula introductivă „În motivare,".
+
+**Formulări introductive - principii de variație:** Pentru a asigura fluiditatea
+narativă și a evita monotonia stilistică, fiecare paragraf argumentativ va fi
+introdus prin una dintre formulările indicate mai sus pentru numărul și genul
+subiectului, alternate în mod strategic de-a lungul textului.
+
+Conectori de continuitate aplicabili: „De asemenea", „Totodată", „În continuare", 
+„Pe de altă parte", „În completare", „Suplimentar", „În acest sens"
+
+Omiterea formulei introductive: acolo unde fluxul narativ permite, se va trece
+direct la expunerea argumentului, fără formulă de introducere, pentru a crea
+dinamism textual
+
+**Criterii de calitate:** Textul final trebuie să fie natural, fluent și
+coerent, evitând repetarea aceleași formule introductive în paragrafe
+consecutive. Diversitatea expresiilor va fi maximizată, fără a compromite
+rigoarea juridică. Fiecare argument prezentat de reclamant trebuie reflectat
+fidel, păstrând ordinea logică și ierarhia importanței acestora. Nu vor fi
+incluse interpretări, comentarii sau aprecieri personale - doar raportarea
+obiectivă a susținerilor reclamantului.
+
+Răspunsul va conține exclusiv textul rezumat solicitat.
+""",
+
+    'isCerere': """Corecteaza textul cererii de mai jos dacă este cazul, acesta
+ar trebui să fie la persoana a III-a, forma activa, timpul trecut, perfect
+compus cu diacritice. Vor fi folosite pronume demonstrative, persoana a
+III-a, (e.g., acestora, acestuia). De exemplu, noastră se va transforma in
+acestora.
+{isReclamant}
 Vei răspunde doar cu textul corectat, fără alte explicații.""",
 
-    'isSelected': """Rezumă descrierea faptelor și circumstanțelor descrise de reclamant în textul extras de mai sus, care să cuprindă toate argumentele esențiale.
-Rezumatul va trebui scris la persoana a III-a, forma activă, modul indicativ și timpul perfect compus. Stilul este juridic, formal, clar și concis.
-Textul va fi structurat in paragrafe, fiecare corespunzând unei idei principale. 
-Pentru a reflecta clar poziția procesuală a părții, fiecare paragraf argumentativ (idee principală) va utiliza expresii de juridice precum „A arătat că”, „A susținut că”, „A învederat că”, „A menționat că”, „A expus faptul că”, „A relatat că”.
-Textul va fi introdus prin „În motivare,”.
-Vei răspunde doar cu textul rezumat, fără alte explicații.""",
-
-    'isCerere': """Corecteaza textul cererii de mai sus dacă este cazul, acesta ar trebui să fie la persoana a III-a, forma activa, timpul trecut, perfect compus cu diacritice. Vor fi folosite pronume demonstrative, persoana a III-a, (e.g., acestora, acestuia). De exemplu, noastră se va transforma in acestora.
-Cine a scris cererea: "{isReclamant}". 
-Textul corectat va incepe mereu cu „a solicitat" sau „au solicitat". Pentru un reclamant (e.g. un singur nume de persoana, companie, institutie), va incepe cu "a solicitat", pentru mai multi reclamanti cu "au solicitat".
-Vei răspunde doar cu textul corectat, fără alte explicații.""",
-
-    'isReclamant': """Textul de mai sus conține mai multe nume de persoane/instituții/companii. De obicei numele o sa fie deja separate prin "si". Nu vrei alterna ordinea cuvintelor. Vreau să le formatezi pentru a avea o listă clară, separată prin virgulă. Vei răspunde doar cu lista, fără alte explicații.""",
+    'isReclamant': """Textul de mai sus conține unul sau mai mai multe
+nume de persoane/instituții/companii ce reprezinta reclamantul. Te rog sa
+extragi o lista JSON, cu toti reclamantii mentionati in text, daca sunt mai
+mult, sau unul singur, daca este cazul. Acest text contine mereu un reclamant,
+astfel lista JSON va avea mereu cel putin o intrare. Fiecare reclamant trebuie
+sa aiba mereu completat genul substantivului masculin (m), feminin (f) sau neutru (n).
+Companiile au genul f.
+Fiecare reclamant trebuie
+sa fie un obiect JSON cu urmatoarele câmpuri:
+{
+    "nume": "numele complet al reclamantului",
+    "gen_substantiv" : "m, f sau n"
+}
+Vei raspunde doar cu lista JSON, fără alte comentarii.""",
 
     'isParat': """Textul de mai sus conține mai multe nume de persoane/instituții/companii. Vreau să le formatăm pentru a avea o listă clară, separată prin virgulă. Vei răspunde doar cu lista, fără alte explicații.""",
 }
