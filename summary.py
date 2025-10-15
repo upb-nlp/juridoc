@@ -195,7 +195,7 @@ async def generate_category_summary(category_text: str, annotation_type: str, do
         summary_prompts = get_prompts_for_task_type(document_type, "summary")
         
         if annotation_type not in summary_prompts:
-            return f"Tip de categorie necunoscut: {annotation_type}"
+            return f"Unknown category type: {annotation_type}"
         
         system_prompt = get_system_prompt_for_task_type(document_type, "summary")
         
@@ -210,8 +210,6 @@ async def generate_category_summary(category_text: str, annotation_type: str, do
         
         start_time = time.time()
 
-        logger.info(f"Sendding LLM request with prompt {messages}")
-        
         completion = await make_openai_request_async(
             model=model_name,
             temperature=0.2,
@@ -258,11 +256,11 @@ async def summarize_document_categories(task_id: str, document: DocumentRequest,
         else:
             annotation_types = summary_annotation_types
         
-        # Always include isReclamant if isCerere or isSelected is in annotation_types
+        # We us the reclamant context in cerere and selected, so ensure isReclamant is processed first.
+        # And the results are later used in cerere and selected.
         if ('isCerere' in annotation_types or 'isSelected' in annotation_types) and 'isReclamant' not in annotation_types:
             annotation_types.insert(0, 'isReclamant')
         elif 'isReclamant' in annotation_types:
-            # Ensure isReclamant is first
             annotation_types.remove('isReclamant')
             annotation_types.insert(0, 'isReclamant')
         
@@ -276,14 +274,23 @@ async def summarize_document_categories(task_id: str, document: DocumentRequest,
         if 'isReclamant' in annotation_types:
             category_text = extract_category_text_from_words(document, 'isReclamant')
             isReclamant_summary = await generate_category_summary(category_text, 'isReclamant', doc_type, None, document)
+            # isReclamant_summary returns a JSON list like:
+            # [                                                                                                                                                       
+            # {                                                                                                                                                     
+            #    "nume": "Name of the claimant"
+            #    "gen_substantiv": "f" // or "m" or "n"
+            #  }                                                                                                                                                     
+            #] 
             
-            # Format the isReclamant context for isCerere
+            # We use the isReclamant context in isCerere for gender and number agreement
+            # isReclamant is the author of the document, so we can use it to
+            # determine if the subject is singular/plural and
             if 'isCerere' in annotation_types:
-                isReclamant_context_cerere = format_reclamant_context(isReclamant_summary)
-            
+                isReclamant_context_cerere = format_reclamant_context_for_cerere(isReclamant_summary, doc_type)
+
             # Format the isReclamant context for isSelected
             if 'isSelected' in annotation_types:
-                isReclamant_context_selected = format_reclamant_context_for_selected(isReclamant_summary)
+                isReclamant_context_selected = format_reclamant_context_for_selected(isReclamant_summary, doc_type)
             
             # Store the isReclamant result
             isReclamant_result = ('isReclamant', isReclamant_summary)
@@ -376,8 +383,13 @@ async def summarize_document_categories(task_id: str, document: DocumentRequest,
         logger.error(f"Document summarization failed: {str(e)} [Case: {document.caseNumber}, Entity: {document.entityId}]")
         update_task_status_callback(task_id, TaskStatus.FAILED, error=str(e))
 
-def format_reclamant_context(isReclamant_json_str: str) -> str:
-    """Format the isReclamant JSON response into context text for isCerere prompt"""
+def format_reclamant_context_for_cerere(isReclamant_json_str: str, document_type: str = "subpoena") -> str:
+    """Format the isReclamant JSON response into context text for isCerere prompt
+    
+    Args:
+        isReclamant_json_str: JSON string containing reclamant information
+        document_type: Type of document ("subpoena" or "counterclaim")
+    """
     import json
     
     try:
@@ -386,6 +398,16 @@ def format_reclamant_context(isReclamant_json_str: str) -> str:
         if not isinstance(reclamanti, list) or len(reclamanti) == 0:
             return ""
         
+        # Determine subject labels based on document type
+        if document_type == "counterclaim":
+            singular_masc = "pârâtul"
+            singular_fem = "pârâta"
+            plural = "pârâții"
+        else:  # subpoena or default
+            singular_masc = "reclamantul"
+            singular_fem = "reclamanta"
+            plural = "reclamanții"
+        
         if len(reclamanti) == 1:
             # Single claimant
             reclamant = reclamanti[0]
@@ -393,17 +415,17 @@ def format_reclamant_context(isReclamant_json_str: str) -> str:
             gen = reclamant.get('gen_substantiv', 'm')
             
             if gen == 'm':
-                return f"""Reclamantul este: {nume}
-Textul corectat va incepe cu „a solicitat". Subiectul este la singular, masculin (reclamant)."""
+                return f"""{singular_masc.capitalize()} este: {nume}
+Textul corectat va incepe cu „a solicitat". Subiectul este la singular, masculin ({singular_masc})."""
             else:  # 'f' or 'n'
-                return f"""Reclamanta este: {nume}
-Textul corectat va incepe cu „a solicitat". Subiectul este la singular, feminin (reclamanta)."""
+                return f"""{singular_fem.capitalize()} este: {nume}
+Textul corectat va incepe cu „a solicitat". Subiectul este la singular, feminin ({singular_fem})."""
         else:
             # Multiple claimants
             nume_list = [r.get('nume', '') for r in reclamanti]
             nume_str = '; '.join(nume_list)
-            return f"""Reclamanții sunt: {nume_str}
-Textul corectat va incepe cu „au solicitat". Subiectul este la plural (reclamanții)."""
+            return f"""{plural.capitalize()} sunt: {nume_str}
+Textul corectat va incepe cu „au solicitat". Subiectul este la plural ({plural})."""
     
     except json.JSONDecodeError:
         logger.error(f"Failed to parse isReclamant JSON: {isReclamant_json_str}")
@@ -412,7 +434,7 @@ Textul corectat va incepe cu „au solicitat". Subiectul este la plural (reclama
         logger.error(f"Error formatting reclamant context: {str(e)}")
         return ""
 
-def format_reclamant_context_for_selected(isReclamant_json_str: str) -> str:
+def format_reclamant_context_for_selected(isReclamant_json_str: str, document_type: str = "subpoena") -> str:
     """Format the isReclamant JSON response into context text for isSelected prompt"""
     import json
     
@@ -422,26 +444,36 @@ def format_reclamant_context_for_selected(isReclamant_json_str: str) -> str:
         if not isinstance(reclamanti, list) or len(reclamanti) == 0:
             return ""
         
+        # Determine subject labels based on document type
+        if document_type == "counterclaim":
+            singular_masc = "pârâtul"
+            singular_fem = "pârâta"
+            plural = "pârâții"
+        else:  # subpoena or default
+            singular_masc = "reclamantul"
+            singular_fem = "reclamanta"
+            plural = "reclamanții"
+        
         if len(reclamanti) == 1:
             # Single claimant
             reclamant = reclamanti[0]
             gen = reclamant.get('gen_substantiv', 'm')
             
             if gen == 'm':
-                return """Subiectul este SINGULAR, masculin (reclamantul).
+                return f"""Subiectul este SINGULAR, masculin ({singular_masc}).
 Formule juridice directe (singular): „A susținut că", „A arătat că", „A învederat că", „A menționat că", „A invocat faptul că", „A expus faptul că", „A relatat că", „A precizat că"
 Construcții cu pronume de politeță (singular): „Acesta a susținut că", „Acesta a menționat că", „Acesta a precizat că", „Acesta a arătat că"
 Conectori de continuitate: „Mai susține că" (singular)
 Expresii raportative indirecte: „Potrivit acestuia" (singular), „Astfel cum a expus" (singular)"""
             else:  # 'f' or 'n'
-                return """Subiectul este SINGULAR, feminin (reclamanta).
+                return f"""Subiectul este SINGULAR, feminin ({singular_fem}).
 Formule juridice directe (singular): „A susținut că", „A arătat că", „A învederat că", „A menționat că", „A invocat faptul că", „A expus faptul că", „A relatat că", „A precizat că"
 Construcții cu pronume de politeță (singular): „Aceasta a susținut că", „Aceasta a menționat că", „Aceasta a precizat că", „Aceasta a arătat că"
 Conectori de continuitate: „Mai susține că" (singular)
 Expresii raportative indirecte: „Potrivit acesteia" (singular), „Astfel cum a expus" (singular)"""
         else:
             # Multiple claimants
-            return """Subiectul este PLURAL (reclamanții).
+            return f"""Subiectul este PLURAL ({plural}).
 Formule juridice directe (plural): „Au susținut că", „Au arătat că", „Au învederat că", „Au menționat că", „Au invocat faptul că", „Au expus faptul că", „Au relatat că", „Au precizat că"
 Construcții cu pronume de politeță (plural): „Aceștia au susținut că", „Aceștia au menționat că", „Aceștia au precizat că", „Aceștia au arătat că"
 Conectori de continuitate: „Mai susțin că" (plural)

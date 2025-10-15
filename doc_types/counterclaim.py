@@ -15,10 +15,10 @@ COUNTERCLAIM_ANNOTATION_MODEL_CONFIG = {
 
 COUNTERCLAIM_SUMMARY_MODEL_CONFIG = {
     'isTemei': "meta-llama/Llama-3.1-8B-Instruct",
-    'isProba': "meta-llama/Llama-3.1-8B-Instruct",
-    'isSelected': "meta-llama/Llama-3.1-8B-Instruct",
+    'isProba': "rewrite-proba",
+    'isSelected': "summary-select",
     'isCerere': "rewrite-cerere",
-    'isReclamant': "meta-llama/Llama-3.1-8B-Instruct",
+    'isReclamant': "extract-reclamant",
     'isParat': "meta-llama/Llama-3.1-8B-Instruct"
 }
 
@@ -40,8 +40,8 @@ COUNTERCLAIM_SUMMARY_PROMPTS = {
     'isTemei': """Corecteaza textul temeiului legal dacă este cazul, acesta ar trebui să fie la persoana a III-a, forma pasivă, timpul perfect compus și este introdus prin "În drept".
 De exemplu, "În drept, au fost invocate următoarele prevederi...". Vei răspunde doar cu textul corectat, fără alte explicații.""",
     
-    'isProba': """Corectează textul probei dacă este cazul, acesta ar trebui să fie la persoana a III-a, forma pasivă, timpul perfect compus și este introdus prin "În probațiune,".
-Vei răspunde doar cu textul corectat, fără alte explicații.""",
+    'isProba': """Adapteaza textul de mai sus pentru a enumera probele aduse intr-un document juridic. Nu vei face schimbari de sens. Probele vor fi separate prin virgula. Singurele schimbari pe care le vei face vor fi sa transformi textul la persoana a III-a, forma pasivă, timpul perfect compus și vei introduce textul prin "În probațiune, s-au solicitat următoarele probe:".
+Vei răspunde doar cu textul cerut, fără alte explicații.""",
 
     'isSelected': """Rezumă descrierea faptelor și circumstanțelor descrise de pârât în textul extras de mai sus, care să cuprindă toate argumentele esențiale.
 Rezumatul va trebui scris la persoana a III-a, forma activă, modul indicativ și timpul perfect compus.
@@ -50,12 +50,30 @@ Pentru a reflecta clar poziția procesuală a părții, fiecare paragraf argumen
 Textul va fi introdus prin „În motivare,”.
 Vei răspunde doar cu textul rezumat, fără alte explicații.""",
 
-    'isCerere': """Corecteaza textul cererii de mai sus dacă este cazul, acesta ar trebui să fie la persoana a III-a, forma activa, timpul trecut, perfect compus cu diacritice. Vor fi folosite pronume demonstrative, persoana a III-a, (e.g., acestora, acestuia). De exemplu, noastră se va transforma in acestora.
-Cine a scris cererea: "{isReclamant}". 
-Textul corectat va incepe mereu cu „a solicitat" sau „au solicitat". Pentru un reclamant (e.g. un singur nume de persoana, companie, institutie), va incepe cu "a solicitat", pentru mai multi reclamanti cu "au solicitat".
+    'isCerere': """Corecteaza textul cererii de mai jos dacă este cazul, acesta
+ar trebui să fie la persoana a III-a, forma activa, timpul trecut, perfect
+compus cu diacritice. Vor fi folosite pronume demonstrative, persoana a
+III-a, (e.g., acestora, acestuia). De exemplu, noastră se va transforma in
+acestora.
+{isReclamant}
 Vei răspunde doar cu textul corectat, fără alte explicații.""",
 
-    'isReclamant': """Textul de mai sus conține unul sau mai multe nume de persoane/instituții. Va trebui să le formatezi pentru a avea o listă clară, separată prin virgulă. Vei răspunde doar cu lista, fără alte explicații.""",
+
+    'isReclamant': """Textul de mai sus conține unul sau mai mai multe
+nume de persoane/instituții/companii ce reprezinta autorul acestui
+document (pârâtul). Te rog sa extragi o lista JSON, cu toti pârâții mentionati in
+text, daca sunt mai mult, sau unul singur, daca este cazul. Acest text contine
+mereu un pârât, astfel lista JSON va avea mereu cel putin o intrare. Fiecare
+pârât trebuie sa aiba mereu completat genul substantivului masculin (m),
+feminin (f) sau neutru (n).
+Companiile au genul f.
+Fiecare pârât trebuie
+sa fie un obiect JSON cu urmatoarele câmpuri:
+{
+    "nume": "numele complet al pârâtului",
+    "gen_substantiv" : "m, f sau n"
+}
+Vei raspunde doar cu lista JSON, fără alte comentarii.""",
 
     'isParat': """Textul de mai sus conține mai multe nume de persoane/instituții. Vreau să le formatăm pentru a avea o listă clară, separată prin virgulă. Vei răspunde doar cu lista, fără alte explicații.""",
 
