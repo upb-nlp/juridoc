@@ -2,6 +2,8 @@
 
 SUBPOENA_ANNOTATION_SYSTEM_PROMPT = """Ești un asistent inteligent specializat în analiza documentelor juridice. Poți extrage și identifica diferite tipuri de entități și informații din documentele juridice românești. Vei răspunde doar cu entitățile extrase, fără a altera textul original. Textul de intrare va avea paragrafele separate prin tagurile <p> și </p>. Entitățile extrase vor conține aceste taguri."""
 
+SUBPOENA_ANNOTATION_SYSTEM_PROMPT_ISSELECTED = """Ești un asistent inteligent specializat în analiza documentelor juridice românești. Sarcina ta este să identifici și să extragi paragrafele cheie care descriu faptele și circumstanțele cazului. Vei răspunde EXCLUSIV cu paragrafele de la începutul și sfârșitul fiecărei regiuni relevante, marcate cu tagurile <p_start> și <p_end>. Nu vei include paragrafe intermediare. Nu vei modifica textul paragrafelor extrase."""
+
 SUBPOENA_SUMMARY_SYSTEM_PROMPT = """Ești un asistent inteligent specializat în analiza, rezumarea și corectarea documentelor juridice românești."""
 
 SUBPOENA_ANNOTATION_MODEL_CONFIG = {
@@ -27,7 +29,13 @@ SUBPOENA_ANNOTATE_PROMPTS = {
     
     'isProba': """Extrage dovezile și probele menționate în documentul de mai jos. Acestea pot include documente, contracte, facturi, martori, expertize, înscrisuri sau alte mijloace de probă care susțin cauza. Deseori sunt introduse prin formulări precum "în probațiune" sau "dovedire", "interogatoriu", "în conformitate cu ... anexăm", "înscrisuri".""",
     
-    'isSelected': """Extrage descrierea faptelor și circumstanțelor cazului din documentul de mai jos. De obicei, aceste informații sunt introduse prin "În fapt" și descriu situația care a dus la conflictul juridic. Acesta este evenimentul relatat de catre reclamant""",
+    'isSelected': """Extrage descrierea faptelor și circumstanțelor cazului din documentul de mai jos. De obicei, aceste informații sunt introduse prin "În fapt" și descriu situația care a dus la conflictul juridic. Acesta este evenimentul relatat de către reclamant.
+
+IMPORTANT: Extrage DOAR paragrafele de la începutul și sfârșitul fiecărei regiuni contigue de paragrafe relevante. Ignoră paragrafele din mijloc. Răspunsul tău trebuie să conțină doar tagurile <p_start> și <p_end>. De exemplu:
+
+<p_start> Primul paragraf al primei regiuni... </p_start> <p_end> Ultimul paragraf al primei regiuni... </p_end> <p_start> Primul paragraf al celei de-a doua regiuni... </p_start> <p_end> Ultimul paragraf al celei de-a doua regiuni... </p_end>
+
+Nu include paragrafe intermediare marcate cu <p>.""",
     
     'isCerere': """Extrage cererea propriu-zisă din documentul de mai jos - ce anume solicită reclamantul de la instanță (despăgubiri, anularea unui act, executarea unei obligații, etc.). In general, cererea este introdusă prin formulări precum "în temeiul celor de mai sus, solicit", "solicit", "în consecință, solicit", "solicit să se dispună", "solicit să se oblige", "solicit să se constate", "solicit să se oblige pârâtul la plata sumei de", etc.""",
     

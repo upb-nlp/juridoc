@@ -12,7 +12,6 @@ from models import (
     TaskStatus, DocumentRequest
 )
 
-# Set up logger
 logger = logging.getLogger(__name__)
 
 def find_contiguous_matches(annotated_text, original_words):
@@ -47,7 +46,7 @@ def find_word_positions_in_paragraph(target_text, paragraph_words):
         match_found = True
         for i, target_word in enumerate(target_words):
             actual_word = paragraph_words[start_pos + i].text.strip()
-            # Case-insensitive comparison, also handle punctuation
+
             if not words_match(actual_word, target_word):
                 match_found = False
                 break
@@ -170,7 +169,13 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
             try:
                 user_content = build_user_prompt_for_task_type(combined_text, annotation_type, "annotation", doc_type)
                 model_name = get_model_for_task_type(doc_type, annotation_type, "annotation")
-                system_prompt = get_system_prompt_for_task_type(doc_type, "annotation")
+                
+                # Use specific system prompt for isSelected on subpoena documents
+                if annotation_type == 'isSelected' and doc_type == 'subpoena':
+                    from doc_types.subpoena import SUBPOENA_ANNOTATION_SYSTEM_PROMPT_ISSELECTED
+                    system_prompt = SUBPOENA_ANNOTATION_SYSTEM_PROMPT_ISSELECTED
+                else:
+                    system_prompt = get_system_prompt_for_task_type(doc_type, "annotation")
 
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -186,9 +191,16 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                     'isTemei': 400,
                     'isProba': 300,
                     'isCerere': 700,
-                    'isSelected': 4000
                 }
-                max_tokens = max_tokens_map.get(annotation_type, 4000)
+                
+                # Special handling for isSelected token limit based on document type
+                if annotation_type == 'isSelected':
+                    if doc_type == 'subpoena':
+                        max_tokens = 1000
+                    else:
+                        max_tokens = 4000
+                else:
+                    max_tokens = max_tokens_map.get(annotation_type, 4000)
 
                 start_time = time.time()
 
@@ -204,6 +216,7 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                 logger.info(f"LLM request completed for {annotation_type} in {duration:.2f} seconds (model: {model_name}) [Case: {document.caseNumber}, Entity: {document.entityId}]")
 
                 response_content = completion.choices[0].message.content
+
                 return annotation_type, response_content
 
             except Exception as e:
@@ -212,7 +225,6 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                 # an error to allow other tasks to continue.
                 return annotation_type, None
 
-        # Run all annotation tasks in parallel
         logger.info(f"Starting parallel processing of {len(annotation_types)} annotation types [Case: {document.caseNumber}, Entity: {document.entityId}]")
         parallel_start_time = time.time()
 
@@ -266,50 +278,132 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
             if not result_text:
                 continue
 
-            para_pattern = r'<p>(.*?)</p>'
-            matches = re.findall(para_pattern, result_text, re.DOTALL)
-            
-            # The model may sometime loop and repeat the same paragraphs at the end.
-            # We handle this by removing duplicate paragraphs from the end.
-            matches = remove_duplicate_paragraphs_from_end(matches)
-            
-            # For each paragraph in the model output, we try to find the matching paragraph
-            # in the original document and then mark the corresponding words.
-            for para_content in matches:
-                cleaned_content = para_content.strip()
-                if not cleaned_content:
-                    continue
+            if annotation_type == 'isSelected' and doc_type == 'subpoena':
+                # Special handling for isSelected with <p_start> and <p_end> tags (only for subpoena documents)
+                pattern = r'<(p_start|p_end)>(.*?)</\1>'
+                tags = re.findall(pattern, result_text, re.DOTALL)
                 
+                # For each paragraph in the model output, we try to find the matching paragraph
+                # in the original document and then mark the corresponding words.
+                search_from_para = 1
+                i = 0
+                
+                while i < len(tags):
+                    tag_type, content = tags[i]
+                    
+                    if tag_type == 'p_start':
 
-                best_match_score, best_paragraph_info = find_best_matching_paragraph(
-                    cleaned_content, paragraph_mapping, annotated_document
-                )
+                        start_content = content.strip()
+                        if not start_content:
+                            i += 1
+                            continue
+                        
+                        # Start paragraph
+                        start_para_num = None
+                        best_match_score, best_paragraph_info = find_best_matching_paragraph_from_position(
+                            start_content, paragraph_mapping, annotated_document, search_from_para
+                        )
+                        
+                        if best_paragraph_info and best_match_score > 0.1:
+                            page_idx, para_idx, _ = best_paragraph_info
+                            for para_num, (p_idx, pr_idx) in paragraph_mapping.items():
+                                if p_idx == page_idx and pr_idx == para_idx and para_num >= search_from_para:
+                                    start_para_num = para_num
+                                    break
+                        
+                        if start_para_num is None:
+                            i += 1
+                            continue
+                        
+                        # End paragraph
+                        end_para_num = None
+                        for j in range(i + 1, len(tags)):
+                            next_tag_type, next_content = tags[j]
+                            if next_tag_type == 'p_end':
+                                end_content = next_content.strip()
+                                if not end_content:
+                                    continue
+                                
+                                best_match_score, best_paragraph_info = find_best_matching_paragraph_from_position(
+                                    end_content, paragraph_mapping, annotated_document, start_para_num + 1
+                                )
+                                
+                                if best_paragraph_info and best_match_score > 0.1:
+                                    page_idx, para_idx, _ = best_paragraph_info
+                                    for para_num, (p_idx, pr_idx) in paragraph_mapping.items():
+                                        if p_idx == page_idx and pr_idx == para_idx and para_num >= start_para_num:
+                                            end_para_num = para_num
+                                            break
+                                    
+                                    if end_para_num is not None:
+                                        # Found a valid pair, skip to this position
+                                        i = j
+                                        break
+                        
+                        if end_para_num is None or start_para_num > end_para_num:
+                            # No valid end found, skip this start
+                            i += 1
+                            continue
+                        
+                        # Set to isSelected = True for all words in paragraphs from start_para_num to end_para_num
+                        logger.info(f"Marking paragraphs {start_para_num} to {end_para_num} as isSelected")
+                        for para_num in range(start_para_num, end_para_num + 1):
+                            if para_num in paragraph_mapping:
+                                page_idx, para_idx = paragraph_mapping[para_num]
+                                page = annotated_document.pages[page_idx]
+                                paragraph = page.paragraphs[para_idx]
+                                
+                                for word in paragraph.words:
+                                    if word.text.strip():
+                                        word.isSelected = True
+                        
+                        search_from_para = end_para_num + 1
+                    
+                    i += 1
+                
+            else:
+                # Regular <p> tag extraction for other annotation types (and isSelected for non-subpoena documents)
+                para_pattern = r'<p>(.*?)</p>'
+                matches = re.findall(para_pattern, result_text, re.DOTALL)
+                
+                # The model may sometime loop and repeat the same paragraphs at the end.
+                # We handle this by removing duplicate paragraphs from the end.
+                matches = remove_duplicate_paragraphs_from_end(matches)
+                
+                for para_content in matches:
+                    cleaned_content = para_content.strip()
+                    if not cleaned_content:
+                        continue
+                    
+                    best_match_score, best_paragraph_info = find_best_matching_paragraph(
+                        cleaned_content, paragraph_mapping, annotated_document
+                    )
 
-                # If we found a good match (score > 0.1 to avoid random matches), apply annotations
-                if best_paragraph_info and best_match_score > 0.1:
-                    page_idx, para_idx, paragraph_words = best_paragraph_info
-                    
-                    # Find all matching word positions for the best paragraph
-                    annotated_text_normalized = ' '.join(cleaned_content.split())
-                    matching_positions = find_contiguous_matches(annotated_text_normalized, paragraph_words)
-                    
-                    unique_positions = set(matching_positions)
-                    
-                    for pos in unique_positions:
-                        if pos < len(paragraph_words):
-                            word = paragraph_words[pos]
-                            if annotation_type == 'isTemei':
-                                word.isTemei = True
-                            elif annotation_type == 'isProba':
-                                word.isProba = True
-                            elif annotation_type == 'isSelected':
-                                word.isSelected = True
-                            elif annotation_type == 'isCerere':
-                                word.isCerere = True
-                            elif annotation_type == 'isReclamant':
-                                word.isReclamant = True
-                            elif annotation_type == 'isParat':
-                                word.isParat = True
+                    # If we found a good match (score > 0.1 to avoid random matches), apply annotations
+                    if best_paragraph_info and best_match_score > 0.1:
+                        page_idx, para_idx, paragraph_words = best_paragraph_info
+                        
+                        # Find all matching word positions for the best paragraph
+                        annotated_text_normalized = ' '.join(cleaned_content.split())
+                        matching_positions = find_contiguous_matches(annotated_text_normalized, paragraph_words)
+                        
+                        unique_positions = set(matching_positions)
+                        
+                        for pos in unique_positions:
+                            if pos < len(paragraph_words):
+                                word = paragraph_words[pos]
+                                if annotation_type == 'isTemei':
+                                    word.isTemei = True
+                                elif annotation_type == 'isProba':
+                                    word.isProba = True
+                                elif annotation_type == 'isCerere':
+                                    word.isCerere = True
+                                elif annotation_type == 'isReclamant':
+                                    word.isReclamant = True
+                                elif annotation_type == 'isParat':
+                                    word.isParat = True
+                                elif annotation_type == 'isSelected':
+                                    word.isSelected = True
         
         annotation_processing_end_time = time.time()
         annotation_processing_duration = annotation_processing_end_time - annotation_processing_start_time
@@ -319,3 +413,39 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
         
     except Exception as e:
         update_task_status_callback(task_id, TaskStatus.FAILED, error=str(e))
+
+
+def find_best_matching_paragraph_from_position(cleaned_content, paragraph_mapping, annotated_document, start_from_para):
+    """Find the paragraph with the highest match score starting from a specific position"""
+    best_match_score = 0
+    best_paragraph_info = None
+
+    annotated_text_normalized = ' '.join(cleaned_content.strip().split()).strip()
+    
+    # Only search from the specified paragraph onwards
+    for actual_para_num in sorted(paragraph_mapping.keys()):
+        if actual_para_num < start_from_para:
+            continue
+            
+        page_idx, para_idx = paragraph_mapping[actual_para_num]
+        page = annotated_document.pages[page_idx]
+        paragraph = page.paragraphs[para_idx]
+        
+        # Get all non-empty words from the paragraph in order
+        paragraph_words = [word for word in paragraph.words if word.text.strip()]
+
+        if not paragraph_words:
+            continue
+        
+        # Calculate match score for this paragraph
+        match_score = calculate_match_score(cleaned_content, paragraph_words, annotated_text_normalized)
+
+        # End early if a perfect match is found
+        if match_score == 1.0:
+            return match_score, (page_idx, para_idx, paragraph_words)
+
+        if match_score > best_match_score:
+            best_match_score = match_score
+            best_paragraph_info = (page_idx, para_idx, paragraph_words)
+    
+    return best_match_score, best_paragraph_info
