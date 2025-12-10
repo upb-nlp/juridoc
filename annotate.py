@@ -149,7 +149,6 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
         update_task_status_callback(task_id, TaskStatus.EXTRACTING_CONTENT, "Extracting text content from pages")
         
         combined_text = extract_combined_text(document)
-        
                                     
         all_annotation_types = ['isTemei', 'isProba', 'isSelected', 'isCerere', 'isReclamant', 'isParat']
         
@@ -196,7 +195,7 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                 # Special handling for isSelected token limit based on document type
                 if annotation_type == 'isSelected':
                     if doc_type == 'subpoena':
-                        max_tokens = 1000
+                        max_tokens = 2000
                     else:
                         max_tokens = 4000
                 else:
