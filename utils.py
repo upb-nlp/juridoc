@@ -1,6 +1,7 @@
 from typing import List, Dict
 import asyncio
 import os
+import re
 from openai import OpenAI, AsyncOpenAI
 from doc_types.subpoena import (
     get_subpoena_annotation_prompts, 
@@ -140,9 +141,18 @@ def extract_combined_text(document):
                     continue
 
                 paragraph_words.append(word_text)
+
             
             if paragraph_words:
                 paragraph_content = ' '.join(paragraph_words)
+
+                # Skip paragraphs that have no meaningful content
+                stripped_content = paragraph_content.strip()
+                meaningful_text = re.sub(r'[\s\d\W]+', '', stripped_content)
+
+                if not meaningful_text or len(meaningful_text) <= 2:
+                    continue
+
                 paragraph_texts.append(f"<p> {paragraph_content} </p>")
     
     return ' '.join(paragraph_texts)
