@@ -19,7 +19,12 @@ def find_contiguous_matches(annotated_text, original_words):
     matches = []
     annotated_words = annotated_text.split()
     
-    # Find all possible contiguous subsequences in the annotated text
+    # Try to find a full match first. If this fail, we try to find partial matches.
+    full_match_positions = find_word_positions_in_paragraph(annotated_text, original_words)
+    if full_match_positions:
+        return full_match_positions
+    
+    # If no full match found, fall back to finding partial contiguous subsequences
     for start_idx in range(len(annotated_words)):
         for end_idx in range(start_idx + 1, len(annotated_words) + 1):
             # Get the subsequence
@@ -185,10 +190,10 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                 # and generate the maximum number of tokens. We limit
                 # it based on the annotation type.
                 max_tokens_map = {
-                    'isReclamant': 150,
-                    'isParat': 150,
-                    'isTemei': 400,
-                    'isProba': 300,
+                    'isReclamant': 300,
+                    'isParat': 300,
+                    'isTemei': 500,
+                    'isProba': 400,
                     'isCerere': 700,
                 }
                 
@@ -209,6 +214,7 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                     max_tokens=max_tokens,
                     messages=messages
                 )
+
 
                 end_time = time.time()
                 duration = end_time - start_time
@@ -368,7 +374,7 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                 # The model may sometime loop and repeat the same paragraphs at the end.
                 # We handle this by removing duplicate paragraphs from the end.
                 matches = remove_duplicate_paragraphs_from_end(matches)
-                
+
                 for para_content in matches:
                     cleaned_content = para_content.strip()
                     if not cleaned_content:
@@ -378,12 +384,14 @@ async def annotate_document_with_llm(task_id: str, document: DocumentRequest, up
                         cleaned_content, paragraph_mapping, annotated_document
                     )
 
+
                     # If we found a good match (score > 0.1 to avoid random matches), apply annotations
                     if best_paragraph_info and best_match_score > 0.1:
                         page_idx, para_idx, paragraph_words = best_paragraph_info
                         
                         # Find all matching word positions for the best paragraph
                         annotated_text_normalized = ' '.join(cleaned_content.split())
+
                         matching_positions = find_contiguous_matches(annotated_text_normalized, paragraph_words)
                         
                         unique_positions = set(matching_positions)
